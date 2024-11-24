@@ -1,26 +1,30 @@
-# Semáforo Inteligente com Sensor LDR e Integração ao Ubidots
+# Semáforo Inteligente com ESP32, LDR e MQTT
+
+- [Vídeo do Projeto em funcionamento](https://youtu.be/5fIagZ0IAeo)
+
+## Membros do grupo:
+- Vinicius Testa Passos
+- Arthur Bretas
+- Vinicius Gomes Ibiapina
+- Lucas Matheus Nunes
+- Davi D'avila Versan
+- Calebe Matias
 
 ## Índice
 
 - [Introdução](#introdução)
 - [Objetivos](#objetivos)
 - [Materiais Necessários](#materiais-necessários)
-- [Parte 1: Montagem Física e Programação com LDR e Modo Noturno](#parte-1-montagem-física-e-programação-com-ldr-e-modo-noturno)
+- [Parte 1: Configuração do Semáforo](#parte-1-configuração-do-semáforo)
   - [Esquema Elétrico](#esquema-elétrico)
   - [Montagem Passo a Passo](#montagem-passo-a-passo)
   - [Código Fonte](#código-fonte)
   - [Explicação do Código](#explicação-do-código)
-- [Parte 2: Configuração da Interface Online](#parte-2-configuração-da-interface-online)
-  - [Criação da Interface](#criação-da-interface)
-  - [Funcionalidades Implementadas](#funcionalidades-implementadas)
-  - [Imagens da Interface](#imagens-da-interface)
-- [Extra: Implementar um Circuito com ESP32 para Cada Semáforo e Conectá-los ao Ubidots](#extra-implementar-um-circuito-com-esp32-para-cada-semáforo-e-conectá-los-ao-ubidots)
-  - [Configuração do ESP32](#configuração-do-esp32)
-  - [Conexão ao Ubidots](#conexão-ao-ubidots)
-  - [Dashboard no Ubidots](#dashboard-no-ubidots)
-- [Resultados e Testes](#resultados-e-testes)
-  - [Funcionamento do Semáforo Inteligente](#funcionamento-do-semáforo-inteligente)
-  - [Vídeo Demonstrativo](#vídeo-demonstrativo)
+- [Parte 2: Integração com MQTT](#parte-2-integração-com-mqtt)
+  - [Configuração do Broker MQTT](#configuração-do-broker-mqtt)
+  - [Implementação no Código](#implementação-no-código)
+  - [Teste de Comunicação](#teste-de-comunicação)
+- [Resultados](#resultados)
 - [Conclusão](#conclusão)
 - [Referências](#referências)
 
@@ -28,304 +32,343 @@
 
 ## Introdução
 
-Nesta documentação, apresentamos o desenvolvimento de um **semáforo inteligente** utilizando um sensor de luz (LDR) e integração com uma interface online e o Ubidots. O objetivo é simular como semáforos podem se comunicar e ajustar o fluxo de veículos em uma Smart City.
+Este projeto apresenta um **semáforo inteligente** utilizando ESP32, LEDs, sensor LDR e integração com o protocolo MQTT. O objetivo é criar um sistema de controle de tráfego ajustável de forma local e remota, com conectividade para monitoramento em tempo real.
+
+---
 
 ## Objetivos
 
-- Montar dois semáforos com sensor LDR para detectar a presença de veículos.
-- Implementar o modo noturno baseado na luminosidade ambiente.
-- Criar uma interface online para controle e visualização dos semáforos.
-- Integrar os semáforos com ESP32 ao Ubidots para monitoramento centralizado.
+- Controlar dois conjuntos de LEDs representando semáforos.
+- Detectar a luminosidade ambiente com um sensor LDR para alternar entre modos de operação.
+- Integrar o semáforo a um broker MQTT para controle e monitoramento remotos.
+
+---
 
 ## Materiais Necessários
 
-- 2 x Placas ESP32
-- LEDs (vermelho, amarelo, verde) ou módulos de semáforo
+- 1 x Placa ESP32
+- LEDs (vermelho, amarelo, verde)
 - 1 x Sensor LDR
 - Resistores variados (10kΩ para o LDR, outros conforme necessário)
 - Protoboard e jumpers
 - Computador com Arduino IDE instalado
-- Conta no Ubidots
 - Conexão Wi-Fi
+- Conta em um broker MQTT (HiveMQ usado como exemplo)
 
-## Parte 1: Montagem Física e Programação com LDR e Modo Noturno
+---
+
+## Parte 1: Configuração do Semáforo
 
 ### Esquema Elétrico
 
-A seguir, o esquema elétrico da montagem dos semáforos com o sensor LDR:
+O diagrama abaixo apresenta a ligação dos LEDs e do sensor LDR ao ESP32:
 
-![Esquema Elétrico](assets/IMG_0314.jpg)
+- **LEDs do semáforo 1:** GPIO 32, 33, 26 (vermelho, amarelo, verde)
+- **LEDs do semáforo 2:** GPIO 18, 16, 4 (vermelho, amarelo, verde)
+- **Sensor LDR:** GPIO 34 (pino analógico)
 
 ### Montagem Passo a Passo
 
 1. **Conexão dos LEDs:**
-   - Conecte os LEDs nos seguintes pinos do ESP32:
-     - **LED Verde:** pino 12
-     - **LED Amarelo:** pino 13
-     - **LED Vermelho:** pino 14
-   - Utilize resistores adequados para proteger os LEDs.
+   - Conecte os LEDs aos pinos indicados e adicione resistores para limitar a corrente.
 
 2. **Conexão do Sensor LDR:**
-   - Conecte um terminal do LDR ao **3.3V** do ESP32.
-   - Conecte o outro terminal ao pino analógico **VP (GPIO 36)**.
-   - Adicione um resistor de **10kΩ** entre o pino analógico e o **GND** para formar um divisor de tensão.
+   - Um terminal no **3.3V** e o outro no GPIO 34, com resistor de 10kΩ para o GND, formando um divisor de tensão.
 
-3. **Verificação das Conexões:**
-   - Certifique-se de que todas as conexões estão corretas.
-   - Verifique a polaridade dos LEDs.
+3. **Verificação:**
+   - Teste as conexões antes de carregar o código.
 
-Foto da montagem física:
-
-![Montagem Física](assets/IMG_0315.jpg)
+---
 
 ### Código Fonte
 
 ```cpp
-// Configuração dos LEDs
-const int ledVerde = 12;
-const int ledAmarelo = 13;
-const int ledVermelho = 14;
+// Bibliotecas necessárias
+#include <WiFi.h>        
+#include <PubSubClient.h> 
+#include <WiFiClientSecure.h> 
+#include <Ticker.h>      
+#include <Arduino.h>
+#include <Wire.h>
+#include <sstream>
+#include <ArduinoJson.h>
+#include <esp_system.h>
 
-// Configuração do Sensor LDR
-const int sensorLDR = 36; // Pino VP (GPIO 36)
+// Pinos para o primeiro conjunto de LEDs
+#define LED_VERMELHO_1 32
+#define LED_AMARELO_1 33
+#define LED_VERDE_1 26
 
-// Classe Semaforo
-class Semaforo {
-  private:
-    int ledVerde, ledAmarelo, ledVermelho;
-    bool cicloAberto; // Estado do ciclo (aberto ou fechado)
-    
-  public:
-    // Construtor
-    Semaforo(int lv, int la, int lr) 
-      : ledVerde(lv), ledAmarelo(la), ledVermelho(lr), cicloAberto(true) {
-      pinMode(ledVerde, OUTPUT);
-      pinMode(ledAmarelo, OUTPUT);
-      pinMode(ledVermelho, OUTPUT);
-    }
+// Pinos para o segundo conjunto de LEDs
+#define LED_VERMELHO_2 18
+#define LED_AMARELO_2 16
+#define LED_VERDE_2 4
 
-    // Métodos de controle do semáforo
-    void sinalVermelho() {
-      digitalWrite(ledVerde, LOW);
-      digitalWrite(ledAmarelo, LOW);
-      digitalWrite(ledVermelho, HIGH);
-    }
+// Pino do sensor LDR
+#define SENSOR_LUZ 34
 
-    void sinalAmarelo() {
-      digitalWrite(ledVerde, LOW);
-      digitalWrite(ledVermelho, LOW);
-      digitalWrite(ledAmarelo, HIGH);
-      delay(500);
-      digitalWrite(ledAmarelo, LOW);
-      delay(500);
-    }
+// Configuração da rede Wi-Fi
+const char* redeWiFi = "RedmiTesta";
+const char* senhaWiFi = "12Teste34";
 
-    void sinalVerde() {
-      digitalWrite(ledVermelho, LOW);
-      digitalWrite(ledAmarelo, LOW);
-      digitalWrite(ledVerde, HIGH);
-      delay(2000);
-      digitalWrite(ledVerde, LOW);
-    }
+// Configuração do broker MQTT
+const char* servidorMQTT = "69cf4987764d4e8bb28208efac5443a9.s1.eu.hivemq.cloud";
+const int portaMQTT = 8883;
+const char* usuarioMQTT = "ESP32_1";
+const char* senhaMQTT = "Ap0rt4l123";
 
-    // Verifica e alterna o ciclo
-    void verifyCycle() {
-      if (cicloAberto) {
-        // Executa o ciclo de sinal amarelo e verde
-        sinalAmarelo();
-        sinalVerde();
-      } else {
-        // Mantém o sinal vermelho
-        sinalVermelho();
-      }
-    }
+String mensagemRecebida;
 
-    // Métodos para alternar o ciclo manualmente (simulando controle externo)
-    void abrirCiclo() {
-      cicloAberto = true;
-    }
+// Objetos para rede e MQTT
+WiFiClientSecure clienteSeguro;
+PubSubClient mqttCliente(clienteSeguro);
 
-    void fecharCiclo() {
-      cicloAberto = false;
-    }
-};
-
-Semaforo semaforo(ledVerde, ledAmarelo, ledVermelho); // Instância do semáforo
-
-void setup() {
-  Serial.begin(115200);
-  semaforo.fecharCiclo(); // Inicializa o semáforo no sinal vermelho
-  pinMode(sensorLDR, INPUT);
-}
-
-void loop() {
-  int valorLDR = analogRead(sensorLDR);
-  Serial.println(valorLDR);
-
-  if (valorLDR < 1000) { // Ajuste este valor conforme a luminosidade ambiente
-    // Modo noturno: pisca o amarelo
-    semaforo.sinalAmarelo();
-  } else {
-    semaforo.verifyCycle();
-    delay(1000);
-
-    // Simulação para alternar o ciclo
-    semaforo.abrirCiclo(); // Abre o ciclo para que o semáforo passe ao amarelo e verde
-    delay(8000);           // Tempo de teste entre os ciclos
-    semaforo.fecharCiclo(); // Fecha o ciclo para que o semáforo fique no vermelho
-  }
-}
-```
-
-### Explicação do Código
-
-- **Definição dos pinos:** Os pinos dos LEDs e do sensor LDR são definidos no início do código.
-- **Classe `Semaforo`:** Encapsula o comportamento do semáforo, facilitando a manutenção e a expansão do código.
-  - **Atributos:**
-    - `ledVerde`, `ledAmarelo`, `ledVermelho`: Armazenam os pinos correspondentes.
-    - `cicloAberto`: Indica se o semáforo está no ciclo normal ou parado no vermelho.
-  - **Métodos:**
-    - `sinalVermelho()`: Acende o LED vermelho.
-    - `sinalAmarelo()`: Pisca o LED amarelo.
-    - `sinalVerde()`: Acende o LED verde por um período definido.
-    - `verifyCycle()`: Controla o fluxo dos sinais baseado no estado do ciclo.
-    - `abrirCiclo()` e `fecharCiclo()`: Alteram o estado do ciclo.
-- **Função `setup()`:** Inicializa a comunicação serial, configura o semáforo para iniciar no vermelho e define o pino do LDR como entrada.
-- **Função `loop()`:**
-  - **Leitura do LDR:** Lê o valor analógico do sensor LDR.
-  - **Condicional do Modo Noturno:** Se a luminosidade estiver abaixo do limiar definido, o semáforo entra em modo noturno, piscando o amarelo.
-  - **Ciclo Normal:** Caso contrário, o semáforo executa o ciclo normal.
-  - **Simulação de Controle Externo:** Alterna entre abrir e fechar o ciclo para simular o controle externo ou a passagem do tempo.
-
-## Parte 2: Configuração da Interface Online
-
-### Criação da Interface
-
-Desenvolvemos uma interface online utilizando o **Ubidots** para monitorar e controlar o semáforo remotamente. A interface permite visualizar o valor do sensor LDR e alterar o estado do semáforo.
-
-### Funcionalidades Implementadas
-
-- **Monitoramento em Tempo Real:** Visualização dos dados do LDR e do estado dos LEDs.
-- **Controle Remoto:** Possibilidade de alterar o estado do ciclo do semáforo (aberto ou fechado).
-- **Alertas:** Notificações em caso de baixa luminosidade (modo noturno ativado).
-
-### Imagens da Interface
-
-![Interface Online](assets/interface_online.png)
-
-## Extra: Implementar um Circuito com ESP32 para Cada Semáforo e Conectá-los ao Ubidots
-
-### Configuração do ESP32
-
-Para conectar o ESP32 ao Ubidots, utilizamos a biblioteca **WiFi.h** e **PubSubClient.h** para comunicação MQTT.
-
-```cpp
-#include <WiFi.h>
-#include <PubSubClient.h>
-
-// Configurações da rede Wi-Fi
-const char* ssid = "Nome_da_Rede";
-const char* password = "Senha_da_Rede";
-
-// Configurações do Ubidots
-const char* mqttServer = "things.ubidots.com";
-const int mqttPort = 1883;
-const char* token = "Seu_Token_Ubidots";
-const char* clientID = "ESP32_Semaforo";
-
-WiFiClient espClient;
-PubSubClient client(espClient);
-
-void setup_wifi() {
-  delay(10);
-  Serial.println();
-  Serial.print("Conectando-se a ");
-  Serial.println(ssid);
-
-  WiFi.begin(ssid, password);
-
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-
-  Serial.println("");
-  Serial.println("WiFi conectado");
-}
-
-void reconnect() {
-  while (!client.connected()) {
-    Serial.print("Tentando se conectar ao MQTT...");
-    if (client.connect(clientID, token, "")) {
-      Serial.println("Conectado");
+// Reconexão ao MQTT
+void verificarMQTT() {
+  while (!mqttCliente.connected()) {
+    Serial.println("Reconectando ao broker MQTT...");
+    if (mqttCliente.connect("ClienteMQTT", usuarioMQTT, senhaMQTT)) {
+      Serial.println("Conectado ao broker MQTT!");
+      mqttCliente.subscribe("controle/leds");
     } else {
-      Serial.print("Falha, rc=");
-      Serial.print(client.state());
-      Serial.println(" Tentando novamente em 5 segundos");
+      Serial.println("Tentando novamente em 5 segundos...");
       delay(5000);
     }
   }
 }
 
-void setup() {
-  Serial.begin(115200);
-  setup_wifi();
-  client.setServer(mqttServer, mqttPort);
-  // Inicialização do semáforo
+// Configuração Wi-Fi
+void conectarWiFi() {
+  Serial.println("Tentando conectar ao Wi-Fi...");
+  WiFi.begin(redeWiFi, senhaWiFi);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\nConexão Wi-Fi estabelecida!");
+  clienteSeguro.setInsecure();
 }
 
-void loop() {
-  if (!client.connected()) {
-    reconnect();
+// Callback para mensagens MQTT
+void processarMensagem(char* topico, byte* dados, unsigned int tamanho) {
+  mensagemRecebida = "";
+  for (unsigned int i = 0; i < tamanho; i++) {
+    mensagemRecebida += (char)dados[i];
   }
-  client.loop();
+  Serial.println("Mensagem recebida: " + mensagemRecebida);
+}
 
-  int valorLDR = analogRead(sensorLDR);
-  char payload[100];
-  sprintf(payload, "{\"LDR\":%d}", valorLDR);
+// Classe para controle dos LEDs
+class ControladorLED {
+  private:
+    int ledVermelho;
+    int ledAmarelo;
+    int ledVerde;
+  public:
+    ControladorLED(int pinoVermelho, int pinoAmarelo, int pinoVerde) {
+      this->ledVermelho = pinoVermelho;
+      this->ledAmarelo = pinoAmarelo;
+      this->ledVerde = pinoVerde;
+    }
 
-  client.publish("/v1.6/devices/semaforo", payload);
+    void configurar() {
+      pinMode(this->ledVermelho, OUTPUT);
+      pinMode(this->ledAmarelo, OUTPUT);
+      pinMode(this->ledVerde, OUTPUT);
+    }
 
-  // Código do semáforo
+    void acenderVerde() {
+      digitalWrite(this->ledVermelho, LOW);
+      digitalWrite(this->ledAmarelo, LOW);
+      digitalWrite(this->ledVerde, HIGH);
+    }
+
+    void ativarAmarelo() {
+      digitalWrite(this->ledVermelho, LOW);
+      digitalWrite(this->ledAmarelo, HIGH);
+      digitalWrite(this->ledVerde, LOW);
+    }
+
+    void acenderVermelho() {
+      digitalWrite(this->ledVermelho, HIGH);
+      digitalWrite(this->ledAmarelo, LOW);
+      digitalWrite(this->ledVerde, LOW);
+    }
+
+    void desligarTudo() {
+      digitalWrite(this->ledVermelho, LOW);
+      digitalWrite(this->ledAmarelo, LOW);
+      digitalWrite(this->ledVerde, LOW);
+    }
+
+    void piscarAmarelo() {
+      digitalWrite(this->ledAmarelo, !digitalRead(this->ledAmarelo));
+    }
+};
+
+// Objetos para controle dos LEDs
+Ticker temporizadorLEDs;
+Ticker temporizadorNoturno1;
+Ticker temporizadorNoturno2;
+ControladorLED ledsConjunto1(LED_VERMELHO_1, LED_AMARELO_1, LED_VERDE_1);
+ControladorLED ledsConjunto2(LED_VERMELHO_2, LED_AMARELO_2, LED_VERDE_2);
+
+#define LEDS_1_VERDE 0
+#define LEDS_1_AMARELO 1
+#define LEDS_1_VERMELHO 2
+#define LEDS_2_AMARELO 3
+#define LEDS_2_VERMELHO 4
+
+int estadoAtual = LEDS_1_VERDE;
+
+void atualizarEstado() {
+  switch (estadoAtual) {
+    case LEDS_1_VERDE:
+      ledsConjunto1.acenderVerde();
+      ledsConjunto2.acenderVermelho();
+      estadoAtual = LEDS_1_AMARELO;
+      temporizadorLEDs.once(3, atualizarEstado);
+      break;
+
+    case LEDS_1_AMARELO:
+      ledsConjunto1.ativarAmarelo();
+      estadoAtual = LEDS_1_VERMELHO;
+      temporizadorLEDs.once(1, atualizarEstado);
+      break;
+
+    case LEDS_1_VERMELHO:
+      ledsConjunto1.acenderVermelho();
+      ledsConjunto2.acenderVerde();
+      estadoAtual = LEDS_2_AMARELO;
+      temporizadorLEDs.once(3, atualizarEstado);
+      break;
+
+    case LEDS_2_AMARELO:
+      ledsConjunto2.ativarAmarelo();
+      estadoAtual = LEDS_2_VERMELHO;
+      temporizadorLEDs.once(1, atualizarEstado);
+      break;
+
+    case LEDS_2_VERMELHO:
+      ledsConjunto2.acenderVermelho();
+      ledsConjunto1.acenderVerde();
+      estadoAtual = LEDS_1_VERDE;
+      temporizadorLEDs.once(1, atualizarEstado);
+      break;
+  }
+}
+
+// Setup inicial
+void setup() {
+  Serial.begin(9600);
+  conectarWiFi();
+  mqttCliente.setServer(servidorMQTT, portaMQTT);
+  mqttCliente.setCallback(processarMensagem);
+
+  ledsConjunto1.configurar();
+  ledsConjunto2.configurar();
+  pinMode(SENSOR_LUZ, INPUT);
+  
+  atualizarEstado();
+}
+
+bool modoNoturno = false;
+
+// Loop principal
+void loop() {
+  if (!mqttCliente.connected()) {
+    verificarMQTT();
+  }
+  mqttCliente.loop();
+
+  int leituraLDR = analogRead(SENSOR_LUZ);
+  String valorSensor = String(leituraLDR);
+  mqttCliente.publish("controle/leds", valorSensor.c_str());
+  Serial.println("LDR: " + valorSensor);
+
+  if(mensagemRecebida == "CONJUNTO_1") {
+    ledsConjunto1.desligarTudo();
+    ledsConjunto2.desligarTudo();
+    estadoAtual = LEDS_1_VERDE;
+  } else if(mensagemRecebida == "CONJUNTO_2") {
+    ledsConjunto1.desligarTudo();
+    ledsConjunto2.desligarTudo();
+    estadoAtual = LEDS_1_VERMELHO;
+  }
+
+  if(leituraLDR <= 300) {
+    if(!modoNoturno) {
+      modoNoturno = true;
+      temporizadorLEDs.detach(); // Desativa o timer do modo normal
+      ledsConjunto1.desligarTudo();
+      ledsConjunto2.desligarTudo();
+      // Inicia o pisca-pisca dos amarelos
+      temporizadorNoturno1.attach(1, []() { ledsConjunto1.piscarAmarelo(); });
+      temporizadorNoturno2.attach(1, []() { ledsConjunto2.piscarAmarelo(); });
+    }
+  } else {
+    if(modoNoturno) {
+      modoNoturno = false;
+      temporizadorNoturno1.detach(); // Desativa os timers do modo noturno
+      temporizadorNoturno2.detach();
+      ledsConjunto1.desligarTudo();
+      ledsConjunto2.desligarTudo();
+      atualizarEstado();
+    }
+  }
 }
 ```
 
-### Conexão ao Ubidots
+---
 
-- **Configuração da Rede Wi-Fi:** Definimos o SSID e a senha da rede.
-- **Configuração do MQTT:** Utilizamos as credenciais do Ubidots para estabelecer a conexão MQTT.
-- **Publicação dos Dados:** Enviamos os valores do LDR e o estado do semáforo para o Ubidots.
+### Explicação do Código
 
-### Dashboard no Ubidots
-
-Criamos um dashboard no Ubidots para visualizar os dados dos semáforos conectados.
-
-![Dashboard Ubidots](assets/dashboard_ubidots.png)
-
-## Resultados e Testes
-
-### Funcionamento do Semáforo Inteligente
-
-- **Detecção de Luminosidade:** O sensor LDR detecta a variação de luminosidade, permitindo a mudança para o modo noturno.
-- **Modo Noturno:** Quando a luminosidade cai abaixo do valor definido, o semáforo entra em modo noturno, piscando o LED amarelo.
-- **Comunicação com o Ubidots:** Os dados do LDR e o estado do semáforo são enviados para o Ubidots, permitindo o monitoramento remoto.
-- **Controle Remoto:** Através da interface online, é possível alterar o estado do ciclo do semáforo.
-
-### Vídeo Demonstrativo
-
-Assista ao vídeo demonstrativo do projeto [aqui](#).
-
-## Conclusão
-
-O projeto demonstrou com sucesso a implementação de um semáforo inteligente utilizando um sensor LDR e integração com uma plataforma IoT. A utilização de uma classe para o semáforo tornou o código mais organizado e modular. A conexão com o Ubidots permitiu o monitoramento e controle remoto, características essenciais em uma Smart City.
-
-## Referências
-
-- [Documentação do ESP32](https://www.espressif.com/en/products/socs/esp32/resources)
-- [Ubidots Documentation](https://ubidots.com/docs/hw/)
-- [Arduino IDE](https://www.arduino.cc/en/Main/Software)
-- [Biblioteca PubSubClient](https://github.com/knolleary/pubsubclient)
+1. **Classe `ControladorLED`:** Garante modularidade e reaproveitamento do código para os dois semáforos.
+2. **Lógica de Controle:**
+   - **Modo Noturno:** Quando a luminosidade ambiente é baixa, os LEDs amarelos piscam.
+   - **Modo Normal:** Alternância entre verde e vermelho para os dois semáforos.
+3. **MQTT:** Integração para controle remoto futuro.
 
 ---
 
-*Este projeto foi desenvolvido como parte de uma atividade acadêmica para explorar conceitos de IoT e cidades inteligentes.*
+## Parte 2: Integração com MQTT
+
+### Configuração do Broker MQTT
+
+- Broker: HiveMQ Cloud
+- Porta: 8883 (segura)
+- Usuário e senha fornecidos pelo serviço.
+
+### Implementação no Código
+
+- **Bibliotecas:** `WiFiClientSecure` para TLS e `PubSubClient` para MQTT.
+- **Callback:** Recebe mensagens para controle dos LEDs.
+
+### Teste de Comunicação
+
+1. Configure o tópico "controle/leds" no broker.
+2. Publique mensagens e verifique a resposta no ESP32.
+
+---
+
+## Resultados
+
+- Detecção precisa da luminosidade ambiente.
+- Alternância confiável entre os estados dos LEDs.
+- Comunicação com o broker MQTT estabelecida.
+
+---
+
+## Conclusão
+
+Este projeto demonstrou como implementar um sistema de semáforo inteligente com controle remoto, mostrando viabilidade em cenários de IoT e cidades inteligentes.
+
+---
+
+## Referências
+
+- [Vídeo do Projeto em funcionamento](https://youtu.be/5fIagZ0IAeo)
+- [Documentação do ESP32](https://www.espressif.com/en/products/socs/esp32/resources)
+- [HiveMQ MQTT Client](https://www.hivemq.com/)
+- [Arduino IDE](https://www.arduino.cc/en/software)
