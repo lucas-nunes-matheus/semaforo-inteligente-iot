@@ -67,6 +67,24 @@ O diagrama abaixo apresenta a ligação dos LEDs e do sensor LDR ao ESP32:
 - **LEDs do semáforo 2:** GPIO 18, 16, 4 (vermelho, amarelo, verde)
 - **Sensor LDR:** GPIO 34 (pino analógico)
 
+<div align="center">
+<sub>Figura 1 - Imagem circuito elétrico 1</sub>
+<br>
+<img src="./assets/IMG_20241124_162729.jpg" alt="Imagem circuito elétrico">
+<br>
+<sup>Fonte: Material produzido pelos autores (2024)</sup>
+</div>
+
+<br>
+
+<div align="center">
+<sub>Figura 2 - Imagem circuito elétrico 2</sub>
+<br>
+<img src="./assets/IMG_20241124_162733.jpg" alt="Imagem circuito elétrico">
+<br>
+<sup>Fonte: Material produzido pelos autores (2024)</sup>
+</div>
+
 ### Montagem Passo a Passo
 
 1. **Conexão dos LEDs:**
