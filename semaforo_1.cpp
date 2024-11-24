@@ -1,82 +1,235 @@
-// Configuração dos LEDs
-const int ledVerde = 12;
-const int ledAmarelo = 13;
-const int ledVermelho = 14;
+// Bibliotecas necessárias
+#include <WiFi.h>        
+#include <PubSubClient.h> 
+#include <WiFiClientSecure.h> 
+#include <Ticker.h>      
+#include <Arduino.h>
+#include <Wire.h>
+#include <sstream>
+#include <ArduinoJson.h>
+#include <esp_system.h>
 
-// Classe Semaforo
-class Semaforo {
+// Pinos para o primeiro conjunto de LEDs
+#define LED_VERMELHO_1 32
+#define LED_AMARELO_1 33
+#define LED_VERDE_1 26
+
+// Pinos para o segundo conjunto de LEDs
+#define LED_VERMELHO_2 18
+#define LED_AMARELO_2 16
+#define LED_VERDE_2 4
+
+// Pino do sensor LDR
+#define SENSOR_LUZ 34
+
+// Configuração da rede Wi-Fi
+const char* redeWiFi = "RedmiTesta";
+const char* senhaWiFi = "12Teste34";
+
+// Configuração do broker MQTT
+const char* servidorMQTT = "69cf4987764d4e8bb28208efac5443a9.s1.eu.hivemq.cloud";
+const int portaMQTT = 8883;
+const char* usuarioMQTT = "ESP32_1";
+const char* senhaMQTT = "Ap0rt4l123";
+
+String mensagemRecebida;
+
+// Objetos para rede e MQTT
+WiFiClientSecure clienteSeguro;
+PubSubClient mqttCliente(clienteSeguro);
+
+// Reconexão ao MQTT
+void verificarMQTT() {
+  while (!mqttCliente.connected()) {
+    Serial.println("Reconectando ao broker MQTT...");
+    if (mqttCliente.connect("ClienteMQTT", usuarioMQTT, senhaMQTT)) {
+      Serial.println("Conectado ao broker MQTT!");
+      mqttCliente.subscribe("controle/leds");
+    } else {
+      Serial.println("Tentando novamente em 5 segundos...");
+      delay(5000);
+    }
+  }
+}
+
+// Configuração Wi-Fi
+void conectarWiFi() {
+  Serial.println("Tentando conectar ao Wi-Fi...");
+  WiFi.begin(redeWiFi, senhaWiFi);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\nConexão Wi-Fi estabelecida!");
+  clienteSeguro.setInsecure();
+}
+
+// Callback para mensagens MQTT
+void processarMensagem(char* topico, byte* dados, unsigned int tamanho) {
+  mensagemRecebida = "";
+  for (unsigned int i = 0; i < tamanho; i++) {
+    mensagemRecebida += (char)dados[i];
+  }
+  Serial.println("Mensagem recebida: " + mensagemRecebida);
+}
+
+// Classe para controle dos LEDs
+class ControladorLED {
   private:
-    int ledVerde, ledAmarelo, ledVermelho;
-    bool cicloAberto; // Estado do ciclo (aberto ou fechado)
-    
+    int ledVermelho;
+    int ledAmarelo;
+    int ledVerde;
   public:
-    // Construtor
-    Semaforo(int lv, int la, int lr) 
-      : ledVerde(lv), ledAmarelo(la), ledVermelho(lr), cicloAberto(true) {
-      pinMode(ledVerde, OUTPUT);
-      pinMode(ledAmarelo, OUTPUT);
-      pinMode(ledVermelho, OUTPUT);
+    ControladorLED(int pinoVermelho, int pinoAmarelo, int pinoVerde) {
+      this->ledVermelho = pinoVermelho;
+      this->ledAmarelo = pinoAmarelo;
+      this->ledVerde = pinoVerde;
     }
 
-    // Métodos de controle do semáforo
-    void sinalVermelho() {
-      digitalWrite(ledVerde, LOW);
-      digitalWrite(ledAmarelo, LOW);
-      digitalWrite(ledVermelho, HIGH);
+    void configurar() {
+      pinMode(this->ledVermelho, OUTPUT);
+      pinMode(this->ledAmarelo, OUTPUT);
+      pinMode(this->ledVerde, OUTPUT);
     }
 
-    void sinalAmarelo() {
-      digitalWrite(ledVerde, LOW);
-      digitalWrite(ledVermelho, LOW);
-      digitalWrite(ledAmarelo, HIGH);
-      delay(2000);
-      digitalWrite(ledAmarelo, LOW);
+    void acenderVerde() {
+      digitalWrite(this->ledVermelho, LOW);
+      digitalWrite(this->ledAmarelo, LOW);
+      digitalWrite(this->ledVerde, HIGH);
     }
 
-    void sinalVerde() {
-      digitalWrite(ledVermelho, LOW);
-      digitalWrite(ledAmarelo, LOW);
-      digitalWrite(ledVerde, HIGH);
-      delay(2000);
-      digitalWrite(ledVerde, LOW);
+    void ativarAmarelo() {
+      digitalWrite(this->ledVermelho, LOW);
+      digitalWrite(this->ledAmarelo, HIGH);
+      digitalWrite(this->ledVerde, LOW);
     }
 
-    // Verifica e alterna o ciclo
-    void verifyCycle() {
-      if (cicloAberto) {
-        // Executa o ciclo de sinal amarelo e verde
-        sinalAmarelo();
-        sinalVerde();
-      } else {
-        // Mantém o sinal vermelho
-        sinalVermelho();
-      }
+    void acenderVermelho() {
+      digitalWrite(this->ledVermelho, HIGH);
+      digitalWrite(this->ledAmarelo, LOW);
+      digitalWrite(this->ledVerde, LOW);
     }
 
-    // Métodos para alternar o ciclo manualmente (simulando controle externo)
-    void abrirCiclo() {
-      cicloAberto = true;
+    void desligarTudo() {
+      digitalWrite(this->ledVermelho, LOW);
+      digitalWrite(this->ledAmarelo, LOW);
+      digitalWrite(this->ledVerde, LOW);
     }
 
-    void fecharCiclo() {
-      cicloAberto = false;
+    void piscarAmarelo() {
+      digitalWrite(this->ledAmarelo, !digitalRead(this->ledAmarelo));
     }
 };
 
-Semaforo semaforo(ledVerde, ledAmarelo, ledVermelho); // Instância do semáforo
+// Objetos para controle dos LEDs
+Ticker temporizadorLEDs;
+Ticker temporizadorNoturno1;
+Ticker temporizadorNoturno2;
+ControladorLED ledsConjunto1(LED_VERMELHO_1, LED_AMARELO_1, LED_VERDE_1);
+ControladorLED ledsConjunto2(LED_VERMELHO_2, LED_AMARELO_2, LED_VERDE_2);
 
-void setup() {
-  Serial.begin(115200);
-  semaforo.fecharCiclo(); // Inicializa o semáforo no sinal vermelho
+#define LEDS_1_VERDE 0
+#define LEDS_1_AMARELO 1
+#define LEDS_1_VERMELHO 2
+#define LEDS_2_AMARELO 3
+#define LEDS_2_VERMELHO 4
+
+int estadoAtual = LEDS_1_VERDE;
+
+void atualizarEstado() {
+  switch (estadoAtual) {
+    case LEDS_1_VERDE:
+      ledsConjunto1.acenderVerde();
+      ledsConjunto2.acenderVermelho();
+      estadoAtual = LEDS_1_AMARELO;
+      temporizadorLEDs.once(3, atualizarEstado);
+      break;
+
+    case LEDS_1_AMARELO:
+      ledsConjunto1.ativarAmarelo();
+      estadoAtual = LEDS_1_VERMELHO;
+      temporizadorLEDs.once(1, atualizarEstado);
+      break;
+
+    case LEDS_1_VERMELHO:
+      ledsConjunto1.acenderVermelho();
+      ledsConjunto2.acenderVerde();
+      estadoAtual = LEDS_2_AMARELO;
+      temporizadorLEDs.once(3, atualizarEstado);
+      break;
+
+    case LEDS_2_AMARELO:
+      ledsConjunto2.ativarAmarelo();
+      estadoAtual = LEDS_2_VERMELHO;
+      temporizadorLEDs.once(1, atualizarEstado);
+      break;
+
+    case LEDS_2_VERMELHO:
+      ledsConjunto2.acenderVermelho();
+      ledsConjunto1.acenderVerde();
+      estadoAtual = LEDS_1_VERDE;
+      temporizadorLEDs.once(1, atualizarEstado);
+      break;
+  }
 }
 
-void loop() {
-  semaforo.verifyCycle();
-  delay(1000);
+// Setup inicial
+void setup() {
+  Serial.begin(9600);
+  conectarWiFi();
+  mqttCliente.setServer(servidorMQTT, portaMQTT);
+  mqttCliente.setCallback(processarMensagem);
 
-  // Simulação para alternar o ciclo
-  // Aperte o botão de reset para reiniciar o ciclo manualmente
-  semaforo.abrirCiclo(); // Abre o ciclo para que o semáforo passe ao amarelo e verde
-  delay(8000);           // Tempo de teste entre os ciclos
-  semaforo.fecharCiclo(); // Fecha o ciclo para que o semáforo fique no vermelho
+  ledsConjunto1.configurar();
+  ledsConjunto2.configurar();
+  pinMode(SENSOR_LUZ, INPUT);
+  
+  atualizarEstado();
+}
+
+bool modoNoturno = false;
+
+// Loop principal
+void loop() {
+  if (!mqttCliente.connected()) {
+    verificarMQTT();
+  }
+  mqttCliente.loop();
+
+  int leituraLDR = analogRead(SENSOR_LUZ);
+  String valorSensor = String(leituraLDR);
+  mqttCliente.publish("controle/leds", valorSensor.c_str());
+  Serial.println("LDR: " + valorSensor);
+
+  if(mensagemRecebida == "CONJUNTO_1") {
+    ledsConjunto1.desligarTudo();
+    ledsConjunto2.desligarTudo();
+    estadoAtual = LEDS_1_VERDE;
+  } else if(mensagemRecebida == "CONJUNTO_2") {
+    ledsConjunto1.desligarTudo();
+    ledsConjunto2.desligarTudo();
+    estadoAtual = LEDS_1_VERMELHO;
+  }
+
+  if(leituraLDR <= 300) {
+    if(!modoNoturno) {
+      modoNoturno = true;
+      temporizadorLEDs.detach(); // Desativa o timer do modo normal
+      ledsConjunto1.desligarTudo();
+      ledsConjunto2.desligarTudo();
+      // Inicia o pisca-pisca dos amarelos
+      temporizadorNoturno1.attach(1, []() { ledsConjunto1.piscarAmarelo(); });
+      temporizadorNoturno2.attach(1, []() { ledsConjunto2.piscarAmarelo(); });
+    }
+  } else {
+    if(modoNoturno) {
+      modoNoturno = false;
+      temporizadorNoturno1.detach(); // Desativa os timers do modo noturno
+      temporizadorNoturno2.detach();
+      ledsConjunto1.desligarTudo();
+      ledsConjunto2.desligarTudo();
+      atualizarEstado();
+    }
+  }
 }
